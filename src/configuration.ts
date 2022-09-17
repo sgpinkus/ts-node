@@ -146,16 +146,11 @@ export function readConfig(
   tsNodeOptionsFromTsconfig: TsConfigOptions;
   optionBasePaths: OptionBasePaths;
 } {
-  // Ordered [a, b, c] where config a extends b extends c
-  const configChain: Array<{
-    config: any;
-    basePath: string;
-    configPath: string;
-  }> = [];
   let config: any = { compilerOptions: {} };
   let basePath = cwd;
   let configFilePath: string | undefined = undefined;
-  const projectSearchDir = resolve(cwd, rawApiOptions.projectSearchDir ?? cwd);
+  const tsNodeOptionsFromTsconfig: TsConfigOptions = {};
+  let optionBasePaths: OptionBasePaths = {};
 
   const {
     fileExists = ts.sys.fileExists,
@@ -167,11 +162,19 @@ export function readConfig(
 
   // Read project configuration when available.
   if (!skipProject) {
+    // Ordered [a, b, c] where config a extends b extends c
+    const configChain: Array<{
+      config: any;
+      basePath: string;
+      configPath: string;
+    }> = [];
+
     if (project) {
       const resolved = resolve(cwd, project);
       const nested = join(resolved, 'tsconfig.json');
       configFilePath = fileExists(nested) ? nested : resolved;
     } else {
+      const projectSearchDir = resolve(cwd, rawApiOptions.projectSearchDir ?? cwd);
       configFilePath = ts.findConfigFile(projectSearchDir, fileExists);
     }
 
@@ -230,46 +233,44 @@ export function readConfig(
 
       ({ config, basePath } = configChain[0]);
     }
-  }
 
-  // Merge and fix ts-node options that come from tsconfig.json(s)
-  const tsNodeOptionsFromTsconfig: TsConfigOptions = {};
-  const optionBasePaths: OptionBasePaths = {};
-  for (let i = configChain.length - 1; i >= 0; i--) {
-    const { config, basePath, configPath } = configChain[i];
-    const options = filterRecognizedTsConfigTsNodeOptions(
-      config['ts-node']
-    ).recognized;
+    // Merge and fix ts-node options that come from tsconfig.json(s)
+    for (let i = configChain.length - 1; i >= 0; i--) {
+      const { config, basePath, configPath } = configChain[i];
+      const options = filterRecognizedTsConfigTsNodeOptions(
+        config['ts-node']
+      ).recognized;
 
-    // Some options are relative to the config file, so must be converted to absolute paths here
-    if (options.require) {
-      // Modules are found relative to the tsconfig file, not the `dir` option
-      const tsconfigRelativeResolver = createProjectLocalResolveHelper(
-        dirname(configPath)
-      );
-      options.require = options.require.map((path: string) =>
-        tsconfigRelativeResolver(path, false)
-      );
-    }
-    if (options.scopeDir) {
-      options.scopeDir = resolve(basePath, options.scopeDir!);
-    }
+      // Some options are relative to the config file, so must be converted to absolute paths here
+      if (options.require) {
+        // Modules are found relative to the tsconfig file, not the `dir` option
+        const tsconfigRelativeResolver = createProjectLocalResolveHelper(
+          dirname(configPath)
+        );
+        options.require = options.require.map((path: string) =>
+          tsconfigRelativeResolver(path, false)
+        );
+      }
+      if (options.scopeDir) {
+        options.scopeDir = resolve(basePath, options.scopeDir!);
+      }
 
-    // Downstream code uses the basePath; we do not do that here.
-    if (options.moduleTypes) {
-      optionBasePaths.moduleTypes = basePath;
-    }
-    if (options.transpiler != null) {
-      optionBasePaths.transpiler = basePath;
-    }
-    if (options.compiler != null) {
-      optionBasePaths.compiler = basePath;
-    }
-    if (options.swc != null) {
-      optionBasePaths.swc = basePath;
-    }
+      // Downstream code uses the basePath; we do not do that here.
+      if (options.moduleTypes) {
+        optionBasePaths.moduleTypes = basePath;
+      }
+      if (options.transpiler != null) {
+        optionBasePaths.transpiler = basePath;
+      }
+      if (options.compiler != null) {
+        optionBasePaths.compiler = basePath;
+      }
+      if (options.swc != null) {
+        optionBasePaths.swc = basePath;
+      }
 
-    assign(tsNodeOptionsFromTsconfig, options);
+      assign(tsNodeOptionsFromTsconfig, options);
+    }
   }
 
   // Remove resolution of "files".
